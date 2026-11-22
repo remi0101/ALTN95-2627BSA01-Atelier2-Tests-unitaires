@@ -1,17 +1,20 @@
 package pos;
 
-import com.fazecast.jSerialComm.SerialPort;
-
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.format.ResolverStyle;
+import java.util.Objects;
 
 /**
  * Communicates with a POS (cash register) over a serial link to retrieve the data
  * of the cheque currently being paid.
+ *
+ * <p>The serial link ({@link SerialChannel}) and the time source ({@link Clock}) are injected,
+ * so that both can be replaced by stubs/mocks in unit tests.
  *
  * <p>Protocol:
  * <ul>
@@ -22,7 +25,7 @@ import java.time.format.ResolverStyle;
  *
  * <p>Usage:
  * <pre>{@code
- * try (PosCommunicator pos = new PosCommunicator("COM3")) {
+ * try (PosCommunicator pos = new PosCommunicator(JSerialCommChannel.open("COM3", 3000))) {
  *     ChequeData data = pos.fetchChequeData();
  * }
  * }</pre>
@@ -37,43 +40,38 @@ public class PosCommunicator implements AutoCloseable {
     private static final char END_OF_FRAME = '\n';
 
     private static final int DEFAULT_TIMEOUT_MS = 3000;
-    private static final int BAUD_RATE = 9600;
-    private static final int DATA_BITS = 8;
     private static final int MAX_FRAME_LENGTH = 256;
 
     private static final DateTimeFormatter DATE_FORMAT =
             DateTimeFormatter.ofPattern("uuuu-MM-dd").withResolverStyle(ResolverStyle.STRICT);
 
-    private final SerialPort serialPort;
+    private final SerialChannel channel;
     private final int timeoutMs;
+    private final Clock clock;
 
     /**
-     * Opens the given serial port with the default timeout (3000 ms).
+     * Creates a communicator using the default timeout (3000 ms) and the system clock.
      *
-     * @param portName serial port name, e.g. {@code COM3} or {@code /dev/ttyUSB0}
+     * @param channel an already opened serial channel
      */
-    public PosCommunicator(String portName) {
-        this(portName, DEFAULT_TIMEOUT_MS);
+    public PosCommunicator(SerialChannel channel) {
+        this(channel, DEFAULT_TIMEOUT_MS, Clock.systemDefaultZone());
     }
 
     /**
-     * Opens the given serial port.
+     * Creates a communicator.
      *
-     * @param portName  serial port name, e.g. {@code COM3} or {@code /dev/ttyUSB0}
-     * @param timeoutMs read timeout in milliseconds
-     * @throws PosCommunicationException if the port cannot be opened
+     * @param channel   an already opened serial channel
+     * @param timeoutMs maximum time to wait for a complete response, in milliseconds
+     * @param clock     time source used for the response timeout and the cheque date validation
      */
-    public PosCommunicator(String portName, int timeoutMs) {
+    public PosCommunicator(SerialChannel channel, int timeoutMs, Clock clock) {
         if (timeoutMs <= 0) {
             throw new IllegalArgumentException("timeoutMs must be positive");
         }
+        this.channel = Objects.requireNonNull(channel, "channel must not be null");
+        this.clock = Objects.requireNonNull(clock, "clock must not be null");
         this.timeoutMs = timeoutMs;
-        this.serialPort = SerialPort.getCommPort(portName);
-        this.serialPort.setComPortParameters(BAUD_RATE, DATA_BITS, SerialPort.ONE_STOP_BIT, SerialPort.NO_PARITY);
-        this.serialPort.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, timeoutMs, timeoutMs);
-        if (!this.serialPort.openPort()) {
-            throw new PosCommunicationException("Unable to open serial port " + portName);
-        }
     }
 
     /**
@@ -94,7 +92,7 @@ public class PosCommunicator implements AutoCloseable {
 
     private void sendCommand() {
         byte[] data = COMMAND.getBytes(StandardCharsets.US_ASCII);
-        int written = serialPort.writeBytes(data, data.length);
+        int written = channel.writeBytes(data, data.length);
         if (written != data.length) {
             throw new PosCommunicationException("Failed to send command to POS (" + written + "/" + data.length + " bytes written)");
         }
@@ -103,13 +101,13 @@ public class PosCommunicator implements AutoCloseable {
     private String readResponse() {
         StringBuilder frame = new StringBuilder();
         byte[] buffer = new byte[1];
-        long deadline = System.currentTimeMillis() + timeoutMs;
+        long deadline = clock.millis() + timeoutMs;
 
         while (true) {
-            if (System.currentTimeMillis() > deadline) {
+            if (clock.millis() > deadline) {
                 throw new PosTimeoutException("No complete response from POS within " + timeoutMs + " ms");
             }
-            int read = serialPort.readBytes(buffer, 1);
+            int read = channel.readBytes(buffer, 1);
             if (read < 0) {
                 throw new PosCommunicationException("Error while reading from serial port");
             }
@@ -156,7 +154,7 @@ public class PosCommunicator implements AutoCloseable {
         } catch (DateTimeParseException e) {
             throw new InvalidResponseException("Invalid cheque date: " + value, e);
         }
-        if (date.isAfter(LocalDate.now())) {
+        if (date.isAfter(LocalDate.now(clock))) {
             throw new InvalidResponseException("Cheque date is in the future: " + value);
         }
         return date;
@@ -179,12 +177,10 @@ public class PosCommunicator implements AutoCloseable {
     }
 
     /**
-     * Closes the underlying serial port.
+     * Closes the underlying serial channel.
      */
     @Override
     public void close() {
-        if (serialPort.isOpen()) {
-            serialPort.closePort();
-        }
+        channel.close();
     }
 }
