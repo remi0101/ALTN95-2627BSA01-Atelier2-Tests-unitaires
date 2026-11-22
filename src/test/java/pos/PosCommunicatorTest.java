@@ -40,15 +40,10 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/**
- * Tests unitaires de {@link PosCommunicator}, écrits selon le motif AAA (Arrange / Act / Assert).
- * La liaison série est un mock Mockito de {@link SerialChannel} ; l'horloge est simulée.
- */
 @ExtendWith(MockitoExtension.class)
 @Timeout(5)
 class PosCommunicatorTest {
 
-    /** "Aujourd'hui" pour tous les tests : 2026-11-22 10:00 UTC. */
     private static final Instant NOW = Instant.parse("2026-11-22T10:00:00Z");
     private static final int TIMEOUT_MS = 3000;
     private static final byte[] EXPECTED_COMMAND = "GET_CHEQUE_DATA\n".getBytes(StandardCharsets.US_ASCII);
@@ -56,10 +51,9 @@ class PosCommunicatorTest {
     @Mock
     private SerialChannel channel;
 
-    /** Octets que la caisse simulée enverra, un par lecture ; ensuite les lectures renvoient 0 (silence). */
     private final Deque<Byte> incoming = new ArrayDeque<>();
 
-    // ------------------------------------------------------------------ helpers (Arrange)
+    // ------------------------------------------------------------------ helpers
 
     private PosCommunicator communicator() {
         return communicator(new SteppingClock(NOW, Duration.ofMillis(1), ZoneOffset.UTC));
@@ -69,12 +63,10 @@ class PosCommunicatorTest {
         return new PosCommunicator(channel, TIMEOUT_MS, clock);
     }
 
-    /** La caisse accepte intégralement la commande écrite. */
     private void commandIsAccepted() {
         when(channel.writeBytes(any(byte[].class), anyInt())).thenAnswer(inv -> inv.getArgument(1));
     }
 
-    /** La caisse accepte la commande puis répond {@code frame} octet par octet, puis se tait. */
     private void posAnswers(String frame) {
         commandIsAccepted();
         for (byte b : frame.getBytes(StandardCharsets.ISO_8859_1)) {

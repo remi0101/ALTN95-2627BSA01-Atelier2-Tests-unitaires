@@ -119,7 +119,7 @@ public class PosCommunicator implements AutoCloseable {
             if (read == 0) {
                 continue;
             }
-            char c = (char) buffer[0];
+            char c = (char) (buffer[0] & 0xFF); // unsigned byte, avoids sign extension of bytes >= 0x80
             if (c == END_OF_FRAME) {
                 break;
             }
