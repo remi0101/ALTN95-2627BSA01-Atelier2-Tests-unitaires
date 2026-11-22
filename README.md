@@ -43,3 +43,21 @@ try (PosCommunicator pos = new PosCommunicator(JSerialCommChannel.open("COM3", 3
     ChequeData data = pos.fetchChequeData();
 }
 ```
+
+## Étape 4 – Tests unitaires
+
+JUnit 5 + Mockito (mock de `SerialChannel`, horloge simulée) + AssertJ :
+
+```bash
+mvn test
+```
+
+## Étape 5 – Couverture de code (JaCoCo, lignes + branches)
+
+```bash
+mvn clean test
+# rapport HTML : target/site/jacoco/index.html (CSV : target/site/jacoco/jacoco.csv)
+```
+
+`JSerialCommChannel` (adaptateur vers le vrai port série) est exclu : il ne contient aucune logique
+et relève de tests d'intégration avec un port réel/virtuel.
