@@ -171,12 +171,7 @@ public class PosCommunicator implements AutoCloseable {
         if (!AMOUNT_FORMAT.matcher(value).matches()) {
             throw new InvalidResponseException("Invalid cheque amount: " + value);
         }
-        BigDecimal amount;
-        try {
-            amount = new BigDecimal(value);
-        } catch (NumberFormatException e) {
-            throw new InvalidResponseException("Invalid cheque amount: " + value, e);
-        }
+        BigDecimal amount = new BigDecimal(value);
         if (amount.signum() <= 0) {
             throw new InvalidResponseException("Cheque amount must be strictly positive: " + value);
         }
