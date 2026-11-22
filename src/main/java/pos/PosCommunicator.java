@@ -8,6 +8,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.format.ResolverStyle;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 /**
  * Communicates with a POS (cash register) over a serial link to retrieve the data
@@ -41,6 +42,10 @@ public class PosCommunicator implements AutoCloseable {
 
     private static final int DEFAULT_TIMEOUT_MS = 3000;
     private static final int MAX_FRAME_LENGTH = 256;
+    private static final String CARRIAGE_RETURN = "\r";
+
+    /** Plain decimal notation only: no exponent, no '+' sign, digits on both sides of the dot. */
+    private static final Pattern AMOUNT_FORMAT = Pattern.compile("-?\\d+(\\.\\d+)?");
 
     private static final DateTimeFormatter DATE_FORMAT =
             DateTimeFormatter.ofPattern("uuuu-MM-dd").withResolverStyle(ResolverStyle.STRICT);
@@ -123,7 +128,9 @@ public class PosCommunicator implements AutoCloseable {
                 throw new InvalidResponseException("Response frame exceeds " + MAX_FRAME_LENGTH + " characters");
             }
         }
-        return frame.toString().trim();
+        String response = frame.toString();
+        // tolerate a CRLF line ending, but do not silently strip any other character
+        return response.endsWith(CARRIAGE_RETURN) ? response.substring(0, response.length() - 1) : response;
     }
 
     private ChequeData parseResponse(String response) {
@@ -137,7 +144,7 @@ public class PosCommunicator implements AutoCloseable {
             throw new PosBusyException("POS is busy");
         }
 
-        String[] parts = response.split(FIELD_SEPARATOR);
+        String[] parts = response.split(FIELD_SEPARATOR, -1);
         if (parts.length != 3 || !RESPONSE_OK.equals(parts[0])) {
             throw new InvalidResponseException("Malformed response: " + response);
         }
@@ -161,6 +168,9 @@ public class PosCommunicator implements AutoCloseable {
     }
 
     private BigDecimal parseAmount(String value) {
+        if (!AMOUNT_FORMAT.matcher(value).matches()) {
+            throw new InvalidResponseException("Invalid cheque amount: " + value);
+        }
         BigDecimal amount;
         try {
             amount = new BigDecimal(value);
