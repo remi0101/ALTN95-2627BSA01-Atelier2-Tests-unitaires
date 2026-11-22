@@ -134,7 +134,7 @@ public class PosCommunicator implements AutoCloseable {
     }
 
     private ChequeData parseResponse(String response) {
-        if (response == null || response.isEmpty()) {
+        if (response.isEmpty()) {
             throw new InvalidResponseException("Empty response from POS");
         }
         if (ERR_NO_TRANSACTION.equals(response)) {
