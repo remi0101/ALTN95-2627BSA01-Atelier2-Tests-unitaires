@@ -220,6 +220,22 @@ class PosCommunicatorTest {
         }
 
         @Test
+        void lit_la_reponse_octet_par_octet() {
+            // Arrange
+            String frame = "OK;2026-11-16;145.50\n";
+            posAnswers(frame);
+            PosCommunicator communicator = communicator();
+            ArgumentCaptor<byte[]> buffers = ArgumentCaptor.forClass(byte[].class);
+
+            // Act
+            communicator.fetchChequeData();
+
+            // Assert : chaque lecture demande exactement 1 octet, dans un tampon suffisant
+            verify(channel, times(frame.length())).readBytes(buffers.capture(), eq(1));
+            assertThat(buffers.getAllValues()).allSatisfy(buffer -> assertThat(buffer).hasSizeGreaterThanOrEqualTo(1));
+        }
+
+        @Test
         void ne_lit_pas_au_dela_de_la_fin_de_trame() {
             // Arrange
             posAnswers("OK;2026-11-16;145.50\nOK;2026-11-17;10.00\n");

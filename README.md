@@ -75,5 +75,6 @@ Configuration : tous les mutateurs (`ALL`), `JSerialCommChannel` exclu (comme po
 |---|---|---|---|---|
 | Mutateurs `STRONGER` | 49 | 49 | 0 | – |
 | Mutateurs `ALL` | 139 | 138 | 1 (`readBytes(buffer, 1)` → `0`, l. 115) | #1 ([texte](docs/issues/01-mutant-readBytes-longueur.md)) |
+| Mutateurs `ALL` après correction | 139 | 139 | 0 | #1 fermée |
 
 Les 2 mutants `TIMED_OUT` (suppression du contrôle de timeout → boucle infinie) sont comptés comme tués.
