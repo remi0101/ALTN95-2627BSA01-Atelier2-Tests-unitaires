@@ -61,3 +61,19 @@ mvn clean test
 
 `JSerialCommChannel` (adaptateur vers le vrai port série) est exclu : il ne contient aucune logique
 et relève de tests d'intégration avec un port réel/virtuel.
+
+## Étape 6 – Tests de mutation (PIT)
+
+```bash
+mvn test-compile org.pitest:pitest-maven:mutationCoverage
+# rapport HTML : target/pit-reports/index.html (CSV : target/pit-reports/mutations.csv)
+```
+
+Configuration : tous les mutateurs (`ALL`), `JSerialCommChannel` exclu (comme pour JaCoCo).
+
+| Exécution | Mutants | Tués | Survivants | Issue |
+|---|---|---|---|---|
+| Mutateurs `STRONGER` | 49 | 49 | 0 | – |
+| Mutateurs `ALL` | 139 | 138 | 1 (`readBytes(buffer, 1)` → `0`, l. 115) | #1 ([texte](docs/issues/01-mutant-readBytes-longueur.md)) |
+
+Les 2 mutants `TIMED_OUT` (suppression du contrôle de timeout → boucle infinie) sont comptés comme tués.
