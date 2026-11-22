@@ -8,8 +8,4 @@ public class PosCommunicationException extends PosException {
     public PosCommunicationException(String message) {
         super(message);
     }
-
-    public PosCommunicationException(String message, Throwable cause) {
-        super(message, cause);
-    }
 }
