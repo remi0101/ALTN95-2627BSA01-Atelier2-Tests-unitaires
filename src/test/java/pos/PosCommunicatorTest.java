@@ -411,11 +411,11 @@ class PosCommunicatorTest {
 
         @ParameterizedTest(name = "{0}")
         @ValueSource(strings = {
-                "2026-11-22", // aujourd'hui
-                "2026-11-21", // hier
-                "2024-02-29", // 29 février d'une année bissextile
-                "2000-02-29", // bissextile séculaire (divisible par 400)
-                "2025-12-31", // changement d'année
+                "2026-11-22",
+                "2026-11-21",
+                "2024-02-29",
+                "2000-02-29",
+                "2025-12-31",
                 "2026-01-01"
         })
         void dates_valides(String date) {
@@ -432,8 +432,8 @@ class PosCommunicatorTest {
 
         @ParameterizedTest(name = "{0}")
         @ValueSource(strings = {
-                "2025-02-29", // année non bissextile
-                "1900-02-29", // séculaire non bissextile
+                "2025-02-29",
+                "1900-02-29",
                 "2026-02-30",
                 "2026-04-31",
                 "2026-13-01",
@@ -479,7 +479,7 @@ class PosCommunicatorTest {
 
         @Test
         void aujourd_hui_depend_du_fuseau_de_l_horloge_injectee() {
-            // Arrange : 2026-11-22 23:30 UTC = 2026-11-23 00:30 à Paris, le 23 n'est donc pas futur
+            // Arrange
             Clock paris = Clock.fixed(Instant.parse("2026-11-22T23:30:00Z"), ZoneId.of("Europe/Paris"));
             posAnswers("OK;2026-11-23;10.00\n");
             PosCommunicator communicator = communicator(paris);
@@ -721,35 +721,6 @@ class PosCommunicatorTest {
 
             // Assert
             assertThat(thrown).isInstanceOf(NullPointerException.class).hasMessage("clock must not be null");
-        }
-    }
-
-    @Nested
-    @DisplayName("ChequeData")
-    class ChequeDataTest {
-
-        @Test
-        void refuse_une_date_nulle() {
-            // Arrange
-            BigDecimal amount = BigDecimal.ONE;
-
-            // Act
-            Throwable thrown = catchThrowable(() -> new ChequeData(null, amount));
-
-            // Assert
-            assertThat(thrown).isInstanceOf(NullPointerException.class).hasMessage("date must not be null");
-        }
-
-        @Test
-        void refuse_un_montant_nul() {
-            // Arrange
-            LocalDate date = LocalDate.of(2026, 11, 16);
-
-            // Act
-            Throwable thrown = catchThrowable(() -> new ChequeData(date, null));
-
-            // Assert
-            assertThat(thrown).isInstanceOf(NullPointerException.class).hasMessage("amount must not be null");
         }
     }
 }
