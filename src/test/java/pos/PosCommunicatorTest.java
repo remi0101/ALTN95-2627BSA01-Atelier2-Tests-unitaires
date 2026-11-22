@@ -8,6 +8,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
@@ -23,6 +25,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
@@ -139,7 +142,7 @@ class PosCommunicatorTest {
 
             // Assert
             assertThat(thrown).isInstanceOf(PosCommunicationException.class)
-                    .hasMessageContaining(written + "/16");
+                    .hasMessage("Failed to send command to POS (" + written + "/16 bytes written)");
             verify(channel, never()).readBytes(any(byte[].class), anyInt());
         }
     }
@@ -278,7 +281,8 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(communicator::fetchChequeData);
 
             // Assert
-            assertThat(thrown).isInstanceOf(NoTransactionException.class).isInstanceOf(PosException.class);
+            assertThat(thrown).isInstanceOf(NoTransactionException.class).isInstanceOf(PosException.class)
+                    .hasMessage("No cheque transaction in progress");
         }
 
         @Test
@@ -291,21 +295,23 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(communicator::fetchChequeData);
 
             // Assert
-            assertThat(thrown).isInstanceOf(PosBusyException.class).isInstanceOf(PosException.class);
+            assertThat(thrown).isInstanceOf(PosBusyException.class).isInstanceOf(PosException.class)
+                    .hasMessage("POS is busy");
         }
 
         @ParameterizedTest
-        @ValueSource(strings = {"ERR_UNKNOWN\n", "ERR_BUSY_\n", "err_busy\n", "ERR_NO_TRANSACTION;X\n"})
-        void code_erreur_inconnu_est_une_trame_invalide(String frame) {
+        @ValueSource(strings = {"ERR_UNKNOWN", "ERR_BUSY_", "err_busy", "ERR_NO_TRANSACTION;X"})
+        void code_erreur_inconnu_est_une_trame_invalide(String code) {
             // Arrange
-            posAnswers(frame);
+            posAnswers(code + "\n");
             PosCommunicator communicator = communicator();
 
             // Act
             Throwable thrown = catchThrowable(communicator::fetchChequeData);
 
             // Assert
-            assertThat(thrown).isInstanceOf(InvalidResponseException.class);
+            assertThat(thrown).isInstanceOf(InvalidResponseException.class)
+                    .hasMessage("Malformed response: " + code);
         }
     }
 
@@ -324,38 +330,43 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(communicator::fetchChequeData);
 
             // Assert
-            assertThat(thrown).isInstanceOf(InvalidResponseException.class).hasMessageContaining("Empty");
+            assertThat(thrown).isInstanceOf(InvalidResponseException.class).hasMessage("Empty response from POS");
+        }
+
+        static Stream<Arguments> tramesMalFormees() {
+            return Stream.of(
+                    // trame reçue (sans \n)              , message attendu
+                    Arguments.of("   ", "Malformed response:    "),
+                    Arguments.of("OK", "Malformed response: OK"),
+                    Arguments.of("OK;2026-11-16", "Malformed response: OK;2026-11-16"),
+                    Arguments.of("OK;2026-11-16;145.50;EXTRA", "Malformed response: OK;2026-11-16;145.50;EXTRA"),
+                    Arguments.of("OK;2026-11-16;145.50;", "Malformed response: OK;2026-11-16;145.50;"),
+                    Arguments.of("OK;2026-11-16;145.50;;", "Malformed response: OK;2026-11-16;145.50;;"),
+                    Arguments.of("OK,2026-11-16,145.50", "Malformed response: OK,2026-11-16,145.50"),
+                    Arguments.of("KO;2026-11-16;145.50", "Malformed response: KO;2026-11-16;145.50"),
+                    Arguments.of("ok;2026-11-16;145.50", "Malformed response: ok;2026-11-16;145.50"),
+                    Arguments.of(";2026-11-16;145.50", "Malformed response: ;2026-11-16;145.50"),
+                    Arguments.of("OK;;145.50", "Invalid cheque date: "),
+                    Arguments.of("OK;2026-11-16;", "Invalid cheque amount: "),
+                    Arguments.of("OK;145.50;2026-11-16", "Invalid cheque date: 145.50"),
+                    Arguments.of("OK;2026-11-16 ;145.50", "Invalid cheque date: 2026-11-16 "),
+                    Arguments.of("OK;2026-11-16;145.50\u0000", "Invalid cheque amount: 145.50\u0000"),
+                    Arguments.of("OK;2026-11-16;14é5.50", "Invalid cheque amount: 14é5.50")
+            );
         }
 
         @ParameterizedTest
-        @ValueSource(strings = {
-                "   \n",
-                "OK\n",
-                "OK;2026-11-16\n",
-                "OK;2026-11-16;145.50;EXTRA\n",
-                "OK;2026-11-16;145.50;\n",
-                "OK;2026-11-16;145.50;;\n",
-                "OK,2026-11-16,145.50\n",
-                "KO;2026-11-16;145.50\n",
-                "ok;2026-11-16;145.50\n",
-                ";2026-11-16;145.50\n",
-                "OK;;145.50\n",
-                "OK;2026-11-16;\n",
-                "OK;145.50;2026-11-16\n",
-                "OK;2026-11-16 ;145.50\n",
-                "OK;2026-11-16;145.50\u0000\n",
-                "OK;2026-11-16;14é5.50\n"
-        })
-        void trame_mal_formee(String frame) {
+        @MethodSource("tramesMalFormees")
+        void trame_mal_formee(String frame, String expectedMessage) {
             // Arrange
-            posAnswers(frame);
+            posAnswers(frame + "\n");
             PosCommunicator communicator = communicator();
 
             // Act
             Throwable thrown = catchThrowable(communicator::fetchChequeData);
 
             // Assert
-            assertThat(thrown).isInstanceOf(InvalidResponseException.class);
+            assertThat(thrown).isInstanceOf(InvalidResponseException.class).hasMessage(expectedMessage);
         }
 
         @Test
@@ -368,7 +379,8 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(communicator::fetchChequeData);
 
             // Assert
-            assertThat(thrown).isInstanceOf(InvalidResponseException.class).hasMessageContaining("exceeds");
+            assertThat(thrown).isInstanceOf(InvalidResponseException.class)
+                    .hasMessage("Response frame exceeds 256 characters");
             assertThat(incoming).isNotEmpty();
         }
 
@@ -383,7 +395,7 @@ class PosCommunicatorTest {
 
             // Assert
             assertThat(thrown).isInstanceOf(InvalidResponseException.class)
-                    .hasMessageStartingWith("Malformed response");
+                    .hasMessage("Malformed response: " + "X".repeat(256));
         }
 
         @Test
@@ -396,7 +408,8 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(communicator::fetchChequeData);
 
             // Assert
-            assertThat(thrown).isInstanceOf(InvalidResponseException.class).hasMessageContaining("exceeds 256");
+            assertThat(thrown).isInstanceOf(InvalidResponseException.class)
+                    .hasMessage("Response frame exceeds 256 characters");
         }
     }
 
@@ -453,7 +466,8 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(communicator::fetchChequeData);
 
             // Assert
-            assertThat(thrown).isInstanceOf(InvalidResponseException.class).hasMessageContaining("date");
+            assertThat(thrown).isInstanceOf(InvalidResponseException.class)
+                    .hasMessage("Invalid cheque date: " + date);
         }
 
         @ParameterizedTest(name = "{0}")
@@ -467,7 +481,8 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(communicator::fetchChequeData);
 
             // Assert
-            assertThat(thrown).isInstanceOf(InvalidResponseException.class).hasMessageContaining("future");
+            assertThat(thrown).isInstanceOf(InvalidResponseException.class)
+                    .hasMessage("Cheque date is in the future: " + date);
         }
 
         @Test
@@ -500,7 +515,8 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(communicator::fetchChequeData);
 
             // Assert
-            assertThat(thrown).isInstanceOf(InvalidResponseException.class).hasMessageContaining("positive");
+            assertThat(thrown).isInstanceOf(InvalidResponseException.class)
+                    .hasMessage("Cheque amount must be strictly positive: " + amount);
         }
 
         @ParameterizedTest(name = "\"{0}\"")
@@ -514,7 +530,8 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(communicator::fetchChequeData);
 
             // Assert
-            assertThat(thrown).isInstanceOf(InvalidResponseException.class).hasMessageContaining("2 decimals");
+            assertThat(thrown).isInstanceOf(InvalidResponseException.class)
+                    .hasMessage("Cheque amount has more than 2 decimals: " + amount);
         }
 
         @ParameterizedTest(name = "\"{0}\"")
@@ -529,7 +546,8 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(communicator::fetchChequeData);
 
             // Assert
-            assertThat(thrown).isInstanceOf(InvalidResponseException.class).hasMessageContaining("Invalid cheque amount");
+            assertThat(thrown).isInstanceOf(InvalidResponseException.class)
+                    .hasMessage("Invalid cheque amount: " + amount);
         }
     }
 
@@ -547,7 +565,8 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(communicator::fetchChequeData);
 
             // Assert
-            assertThat(thrown).isInstanceOf(PosTimeoutException.class).hasMessageContaining("3000 ms");
+            assertThat(thrown).isInstanceOf(PosTimeoutException.class)
+                    .hasMessage("No complete response from POS within 3000 ms");
         }
 
         @Test
@@ -560,7 +579,8 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(communicator::fetchChequeData);
 
             // Assert
-            assertThat(thrown).isInstanceOf(PosTimeoutException.class);
+            assertThat(thrown).isInstanceOf(PosTimeoutException.class)
+                    .hasMessage("No complete response from POS within 3000 ms");
         }
 
         @Test
@@ -575,7 +595,8 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(communicator::fetchChequeData);
 
             // Assert
-            assertThat(thrown).isInstanceOf(PosTimeoutException.class);
+            assertThat(thrown).isInstanceOf(PosTimeoutException.class)
+                    .hasMessage("No complete response from POS within 3000 ms");
             verify(channel, times(2)).readBytes(any(byte[].class), anyInt());
         }
 
@@ -607,7 +628,8 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(communicator::fetchChequeData);
 
             // Assert
-            assertThat(thrown).isInstanceOf(PosCommunicationException.class);
+            assertThat(thrown).isInstanceOf(PosCommunicationException.class)
+                    .hasMessage("Error while reading from serial port");
         }
 
         @Test
@@ -624,7 +646,8 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(communicator::fetchChequeData);
 
             // Assert
-            assertThat(thrown).isInstanceOf(PosCommunicationException.class);
+            assertThat(thrown).isInstanceOf(PosCommunicationException.class)
+                    .hasMessage("Error while reading from serial port");
         }
     }
 
@@ -654,7 +677,8 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(communicator::fetchChequeData);
 
             // Assert
-            assertThat(thrown).isInstanceOf(PosTimeoutException.class).hasMessageContaining("3000 ms");
+            assertThat(thrown).isInstanceOf(PosTimeoutException.class)
+                    .hasMessage("No complete response from POS within 3000 ms");
         }
 
         @ParameterizedTest
@@ -667,7 +691,8 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(() -> new PosCommunicator(channel, timeout, clock));
 
             // Assert
-            assertThat(thrown).isInstanceOf(IllegalArgumentException.class);
+            assertThat(thrown).isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("timeoutMs must be positive");
         }
 
         @Test
@@ -691,7 +716,7 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(() -> new PosCommunicator(null, TIMEOUT_MS, clock));
 
             // Assert
-            assertThat(thrown).isInstanceOf(NullPointerException.class).hasMessageContaining("channel");
+            assertThat(thrown).isInstanceOf(NullPointerException.class).hasMessage("channel must not be null");
         }
 
         @Test
@@ -703,7 +728,7 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(() -> new PosCommunicator(channel, TIMEOUT_MS, clock));
 
             // Assert
-            assertThat(thrown).isInstanceOf(NullPointerException.class).hasMessageContaining("clock");
+            assertThat(thrown).isInstanceOf(NullPointerException.class).hasMessage("clock must not be null");
         }
     }
 
@@ -720,7 +745,7 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(() -> new ChequeData(null, amount));
 
             // Assert
-            assertThat(thrown).isInstanceOf(NullPointerException.class).hasMessageContaining("date");
+            assertThat(thrown).isInstanceOf(NullPointerException.class).hasMessage("date must not be null");
         }
 
         @Test
@@ -732,7 +757,7 @@ class PosCommunicatorTest {
             Throwable thrown = catchThrowable(() -> new ChequeData(date, null));
 
             // Assert
-            assertThat(thrown).isInstanceOf(NullPointerException.class).hasMessageContaining("amount");
+            assertThat(thrown).isInstanceOf(NullPointerException.class).hasMessage("amount must not be null");
         }
     }
 }
